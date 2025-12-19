@@ -1,4 +1,163 @@
 // ===== PAGE MANAGEMENT =====
+// ===== Client-side API mock for GitHub Pages demo =====
+// If the site is served as a static site (no backend), intercept fetch
+// calls to `/api/*` and handle them in localStorage so the demo works.
+(function(){
+    const isStatic = location.hostname.endsWith('github.io') || location.protocol === 'file:' || location.hostname === '';
+    if (!isStatic) return; // only enable mock when running as static site
+
+    const seedExercises = window.__seedExercises = window.__seedExercises || (function(){
+        return [
+            { id:1, name:'Running', description:'Running at a moderate pace', category:'Cardio', difficulty:'Intermediate', calories_burned_per_minute:10.0, muscle_groups:'Legs, Core', instructions:'Maintain steady pace' },
+            { id:2, name:'Cycling', description:'Cycling on a flat surface', category:'Cardio', difficulty:'Beginner', calories_burned_per_minute:8.0, muscle_groups:'Legs, Glutes', instructions:'Keep back straight' },
+            { id:3, name:'Push-ups', description:'Classic push-up exercise', category:'Strength', difficulty:'Beginner', calories_burned_per_minute:4.0, muscle_groups:'Chest, Shoulders, Triceps', instructions:'Keep body straight' }
+        ];
+    })();
+
+    function readStore(key, fallback){
+        try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch(e){ return fallback; }
+    }
+    function writeStore(key, val){ localStorage.setItem(key, JSON.stringify(val)); }
+
+    // initialize stores
+    if (!localStorage.getItem('exercises')) writeStore('exercises', seedExercises);
+    if (!localStorage.getItem('workouts')) writeStore('workouts', []);
+    if (!localStorage.getItem('goals')) writeStore('goals', []);
+    if (!localStorage.getItem('body_measurements')) writeStore('body_measurements', []);
+    if (!localStorage.getItem('users')) writeStore('users', [{ id:1, name:'Demo User', age:25, height_cm:170, initial_weight_kg:70, gender:'male' }]);
+
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async function(input, init){
+        const url = (typeof input === 'string') ? input : (input && input.url) || '';
+        if (!url.startsWith('/api/')) return originalFetch(input, init);
+
+        const method = (init && init.method) || 'GET';
+        const path = url.replace(/^\/api\//, '');
+        const parts = path.split('/').filter(Boolean);
+
+        // small helper to create Response-like object
+        function jsonResponse(obj){
+            return new Response(JSON.stringify(obj), { status:200, headers:{ 'Content-Type':'application/json' } });
+        }
+
+        // parse body if present
+        let body = null;
+        if (init && init.body) {
+            try { body = JSON.parse(init.body); } catch(e){ body = null; }
+        }
+
+        // Route handlers
+        try {
+            // EXERCISES
+            if (parts[0] === 'exercises'){
+                if (method === 'GET'){
+                    const exercises = readStore('exercises', []);
+                    return jsonResponse({ exercises });
+                }
+            }
+
+            // WORKOUTS
+            if (parts[0] === 'workouts'){
+                if (method === 'GET'){
+                    const workouts = readStore('workouts', []).sort((a,b)=> new Date(b.date) - new Date(a.date));
+                    return jsonResponse({ workouts });
+                }
+                if (method === 'POST'){
+                    const workouts = readStore('workouts', []);
+                    const id = (workouts.length? (workouts[workouts.length-1].id||0):0) + 1;
+                    const now = new Date().toISOString();
+                    const w = { id, user_id:1, exercise_name: body.exercise_name || 'Unknown', duration_minutes: body.duration_minutes||0, calories_burned: body.calories_burned||Math.round(5*(body.duration_minutes||0)), date: now };
+                    workouts.push(w); writeStore('workouts', workouts);
+                    return jsonResponse({ message:'Workout logged successfully!', id, calories_burned: w.calories_burned });
+                }
+                if (method === 'DELETE' && parts[1]){
+                    const id = Number(parts[1]);
+                    let workouts = readStore('workouts', []);
+                    workouts = workouts.filter(x=> x.id !== id);
+                    writeStore('workouts', workouts);
+                    return jsonResponse({ message:'Workout deleted successfully!' });
+                }
+            }
+
+            // PROFILE
+            if (parts[0] === 'profile'){
+                if (method === 'GET'){
+                    const users = readStore('users', []);
+                    return jsonResponse({ profile: users[0] || null });
+                }
+                if (method === 'POST'){
+                    const users = readStore('users', []);
+                    users[0] = Object.assign(users[0]||{}, body);
+                    writeStore('users', users);
+                    return jsonResponse({ message:'Profile updated successfully!' });
+                }
+            }
+
+            // GOALS
+            if (parts[0] === 'goals'){
+                if (method === 'GET'){
+                    const goals = readStore('goals', []);
+                    return jsonResponse({ goals });
+                }
+                if (method === 'POST'){
+                    const goals = readStore('goals', []);
+                    const id = (goals.length? goals[goals.length-1].id:0) + 1;
+                    const g = { id, user_id:1, goal_type: body.goal_type, target_value: body.target_value, current_value: 0, target_date: body.target_date || null, created_at: new Date().toISOString(), is_completed: false };
+                    goals.push(g); writeStore('goals', goals);
+                    return jsonResponse({ message:'Goal set successfully!', id: g.id });
+                }
+                if (method === 'PUT' && parts[1]){
+                    const id = Number(parts[1]);
+                    const goals = readStore('goals', []);
+                    const g = goals.find(x=> x.id === id);
+                    if (g){ Object.assign(g, body); writeStore('goals', goals); }
+                    return jsonResponse({ message:'Goal updated successfully!' });
+                }
+                if (method === 'DELETE' && parts[1]){
+                    const id = Number(parts[1]);
+                    let goals = readStore('goals', []);
+                    goals = goals.filter(x=> x.id !== id); writeStore('goals', goals);
+                    return jsonResponse({ message: 'Goal deleted successfully!' });
+                }
+            }
+
+            // BODY MEASUREMENTS
+            if (parts[0] === 'body-measurements'){
+                if (method === 'GET'){
+                    const measurements = readStore('body_measurements', []).sort((a,b)=> new Date(b.measurement_date) - new Date(a.measurement_date));
+                    return jsonResponse({ measurements });
+                }
+                if (method === 'POST'){
+                    const measurements = readStore('body_measurements', []);
+                    const id = (measurements.length? measurements[measurements.length-1].id:0) + 1;
+                    const now = new Date().toISOString();
+                    const m = Object.assign({ id, user_id:1, measurement_date: now }, body);
+                    measurements.push(m); writeStore('body_measurements', measurements);
+                    return jsonResponse({ message:'Body measurements saved successfully!', id: m.id });
+                }
+            }
+
+            // Simple aggregate endpoints (charts/statistics) - use workouts/measurements
+            if (parts[0] === 'charts'){
+                const workouts = readStore('workouts', []);
+                if (parts[1] === 'workout-data'){
+                    // last 30 days grouped by date
+                    const map = {};
+                    workouts.forEach(w=>{ const d = w.date.split('T')[0]; map[d] = map[d] || { date:d, workout_count:0, daily_calories:0, total_duration:0 }; map[d].workout_count++; map[d].daily_calories += (w.calories_burned||0); map[d].total_duration += (w.duration_minutes||0); });
+                    const arr = Object.values(map).sort((a,b)=> new Date(a.date)-new Date(b.date));
+                    return jsonResponse({ workoutData: arr });
+                }
+            }
+
+            // default: respond with empty OK
+            return jsonResponse({});
+        } catch(err){
+            return new Response(JSON.stringify({ error: err.message }), { status:500, headers:{ 'Content-Type':'application/json' } });
+        }
+    };
+    console.log('🔁 API mock enabled for static demo (GitHub Pages)');
+})();
+
 function showPage(pageId) {
     console.log('🔄 Switching to page:', pageId);
     
