@@ -164,10 +164,24 @@ function showPage(pageId) {
     
     // Special handling for app page
     if (pageId === 'app-page') {
-        // Show goal setup first
-        showSection('goal-setup');
-        // Initialize app
-        initializeApp();
+        // For the static demo we may want to skip the login/goal-setup
+        // If the demo flag is set or if we have user/workouts data, go to dashboard
+        try {
+            const skipLogin = localStorage.getItem('demo_skip_login') === 'true';
+            const hasWorkouts = !!localStorage.getItem('workouts');
+            if (skipLogin || hasWorkouts) {
+                // Initialize app and show dashboard directly
+                initializeApp();
+                showSection('dashboard');
+            } else {
+                // Default behavior: show goal setup first
+                showSection('goal-setup');
+                initializeApp();
+            }
+        } catch (e) {
+            showSection('goal-setup');
+            initializeApp();
+        }
     }
 }
 
@@ -528,13 +542,21 @@ function initializeApp() {
 // ===== MAIN INITIALIZATION =====
 document.addEventListener('DOMContentLoaded', function() {
     console.log("🏋️‍♂️ WebFit Tracker Loaded!");
-    
+
     // Initialize all event listeners
     initializeEventListeners();
-    
-    // Start with landing page
-    showPage('landing-page');
-    
+
+    // For the static demo, set a flag to skip login and directly show app functionality
+    try {
+        // Set demo flag so subsequent runs also skip login (non-destructive)
+        localStorage.setItem('demo_skip_login', 'true');
+    } catch (e) {
+        console.warn('Could not set demo flag in localStorage:', e);
+    }
+
+    // Show the app page directly for the demo (will go to dashboard when demo flag is present)
+    showPage('app-page');
+
     // Debug info
     console.log('📄 All pages:', document.querySelectorAll('.page').length);
     console.log('🔘 Start button:', document.getElementById('start-journey-btn'));
